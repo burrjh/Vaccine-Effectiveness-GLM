@@ -1,0 +1,54 @@
+---
+title: "Vaccine Effectiveness in Catalunya"
+author: "Johannes Burr"
+date: "16 12 2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+We'll write some introductory words later.
+
+## Data Preparation
+
+Since this is a real data set it naturally does not come precisely in the form our analysis expects it to be. Therefore, we first have to prepare and also translate it.
+
+```{r}
+data = read.csv("Impacte_del_COVID.csv", encoding="UTF-8")
+df = data
+colnames(df) = c("sex", "age", "date", "event", "vaccinated", "count")
+
+df$sex = as.factor(df$sex)               # male, female, NaN
+df$age = as.factor(df$age)               # discretizied for some reason
+df$event = as.factor(df$event)           # positive, hospitalized, critical (ICU)
+df$date = as.Date(df$date,"%d/%m/%Y")    # now in format Year,month,day
+df$vaccinated = as.factor(df$vaccinated) # none, partial, full
+df$count = as.numeric(df$count)  # this means #count people with these characteristics have been observed on this day
+
+# the task asks us to only analyze people older than 30
+df = subset(df, age=="30 a 39" | age == "40 a 49" | age == "50 a 59" |
+         age == "60 a 69" | age == "70 a 79" | age == "80 o mÃ©s")
+
+# also only between 1st March 2020 and 12. December 2021
+df = subset(df, date>"2021-03-01" | date > "2021-12-12")
+dim(df)
+```
+I have pasted the task from the pdf below. We should at least do that.
+
+## Descriptive Analysis
+### Plots
+Histograms, Bar charts, Pareto Plots.
+
+### Critical Patients over time
+divided by gender (and maybe also vaccination status?)
+
+### Contingency Table
+Count as function of vaccination status and age
+
+## Statistical Inference
+Poisson Model to fit this count variable
+
+## Conclusion
