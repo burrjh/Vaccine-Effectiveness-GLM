@@ -28,6 +28,8 @@ df$date = as.Date(df$date,"%d/%m/%Y")    # now in format Year,month,day
 df$vaccinated = as.factor(df$vaccinated) # none, partial, full
 df$count = as.numeric(df$count)  # this means #count people with these characteristics have been observed on this day
 
+ggplot( data = df, aes( date, rollmean(count,8,na.pad=TRUE), vaccinated )) + geom_line() 
+
 # the task asks us to only analyze people older than 30
 df = subset(df, age=="30 a 39" | age == "40 a 49" | age == "50 a 59" |
          age == "60 a 69" | age == "70 a 79" | age == "80 o més")
@@ -167,6 +169,16 @@ df_critial_female = df[df$sex=="Dona" & df$event=="Crítics",]
 
 ggplot( data = df_critial_female, aes( date, count, vaccinated )) + geom_line() 
 ```
+```{r}
+library("zoo")
+library("ggplot2")
+
+?rollmean
+
+df_deaths = df[df$event=="Defunció",]
+
+ggplot( data = df_deaths, aes( date, rollmean(count,15,na.pad=TRUE), vaccinated )) + geom_line() 
+```
 
 
 
@@ -210,9 +222,23 @@ summary(multi_vacc)
 
 ```{r}
 # define critical case as anything worse than being positive and quarantined ("Cas")
-df$critial = as.numeric(! df$event=="Cas")
+df$critical = as.numeric(! df$event=="Cas")
 
 # now we would need to multiply the rows by count to fit this in a regular way i think
+
+df_enrolled = df[rep(row.names(df),df$count),]
+
+```
+
+
+
+```{r}
+dim(df_enrolled)[1] == sum(df$count) # sanity check
+```
+```{r}
+logReg = glm(critical ~ age + vaccinated, data=df_enrolled, family=binomial(link='logit'))
+
+summary(logReg)
 ```
 
 
