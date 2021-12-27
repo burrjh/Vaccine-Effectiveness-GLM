@@ -159,7 +159,7 @@ count_sums - expected
 ### Age and Infection Gravity
 %%% this used to work
 ```{r}
-counts = data.frame(matrix(0,ncol=5,nrow=4))
+counts = data.frame(matrix(0,ncol=6,nrow=4))
 
 rownames(counts) = c("casa","hospital","critical","dead")
 
