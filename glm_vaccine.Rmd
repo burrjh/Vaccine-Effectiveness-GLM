@@ -2,7 +2,9 @@
 title: "Vaccine Effectiveness in Catalunya"
 author: "Erik and Johannes Markus Burr"
 date: "16 12 2021"
-output: pdf_document
+output:
+  html_document:
+    df_print: paged
 ---
 
 ```{r setup, include=FALSE}
@@ -47,7 +49,7 @@ The dataset captures these four event types.
 
 ```{r}
 table(df$event) # dependent variable
-2166+         839     +     4146 
+2351+1565+5101
 ```
 
 And shows the relationship to vaccine status.
@@ -71,11 +73,13 @@ Histograms, Bar charts, Pareto Plots.  %%%todo
 divided by gender (and maybe also vaccination status?)
 
 ```{r}
+#Shall we consider "critical" as only "critics" or also hospital and deaths?
 df_critial_male = df[df$sex=="Home" & df$event=="Crítics",]
 
 ggplot( data = df_critial_male, aes( date, rollmean(count,8,na.pad=TRUE), vaccinated )) + geom_line() 
 ```
 ```{r}
+#Shall we consider "critical" as only "critics" or also hospital and deaths?
 df_critial_female = df[df$sex=="Dona" & df$event=="Crítics",]
 
 ggplot( data = df_critial_female, aes( date, rollmean(count,8,na.pad=TRUE), vaccinated )) + geom_line() 
@@ -138,10 +142,47 @@ count_sums
 Now that we have the contingency table for event type by vaccine status, we can perform a $\chi^2$ test testing the independence of both factors.
 This is done by calculating the Test statistic ............... %%% put in formula from slides
 ```{r}
-chisq.test(count_sums)
+chisq_vac = chisq.test(count_sums)
 ```
 The nullhypothesis that the type of event and vaccine status are independent can be rejected.
 In order to understand where these difference are present, we calculate the expected values and subtract them from the observed.
+
+A nice little bar plot of different severity for different vaccination status, normalized
+```{r}
+count_sums_norm=count_sums
+for (i in 1:3){
+  count_sums_norm[,i] = count_sums[,i]/colSums(count_sums[i])
+}
+library(RColorBrewer)
+colors4 <- brewer.pal(4,"Set1")
+bar_plot4 = barplot(data.matrix(count_sums_norm), col = colors4, legend = rownames(count_sums_norm), beside = TRUE)
+```
+
+Same plot as above but binary severity, normalized
+```{r}
+count_sums_binary = data.frame(matrix(0,ncol=3,nrow=2))
+colnames(count_sums_binary) = c("none","partial","full")  # vaccine status
+rownames(count_sums_binary) = c("mild","severe") # event type
+
+count_sums_binary[1,] = count_sums[1,]
+count_sums_binary[2,] = count_sums[2,]+count_sums[3,]+count_sums[4,]
+count_sums_binary_norm=count_sums_binary
+for (i in 1:3){
+  count_sums_binary_norm[,i] = count_sums_binary[,i]/colSums(count_sums_binary[i])
+}
+
+bar_plot2 = barplot(data.matrix(count_sums_binary_norm), col=c("red","blue"), legend = rownames(count_sums_binary), beside = TRUE)
+```
+Pareto charts
+```{r}
+library(qcc)
+
+#For some reason I can't change "A,B,C,D" to "casa, hospital, .." :(((
+
+pareto.chart(count_sums[,1], main = "Pareto Chart: No vaccination")
+pareto.chart(count_sums[,2], main = "Pareto Chart: Partial vaccination")
+pareto.chart(count_sums[,3], main = "Pareto Chart: Full vaccination")
+```
 
 ```{r}
 expected = matrix(data=0, ncol=3, nrow=4)
@@ -154,7 +195,26 @@ for (i in 1:4){
 count_sums - expected
 
 ```
+Another was of writing. Gives the same answer but might be easier to understand, can skip counting on our own.
+```{r}
+diff_table = count_sums - chisq_vac$expected
+diff_table
+```
+
 %%% This doesn't really make, does it? The first row says that there were more cases in fully vaccinated people than expected? 
+
+%%% It makes sense. Under the null-hyp, more non-vaccinated people should have a mild reaction, and vaccinated are over-represented on mild reactions.
+%%% On the other hand, surprisingly few vaccinated experience "hospital" or "critical", and the opposite for non-vaccinated.
+%%% For the dying people. this is a bit weird though. It seems like vaccinated people are over-represented among the death cases.
+
+```{r}
+diff_table_norm = diff_table
+for (i in 1:3){
+  diff_table_norm[,i] = diff_table[,i]/colSums(count_sums[i])
+}
+diff_table_norm
+```
+%%% My idea was to normalize so we can see what the partial vaccination do. I don't know if it makes sense, but partial seem that partially vaccinated people experience more "casa" cases, less "hospital" and "critical", and also more "dead". Similiar too full vaccination effect but not equally strong.
 
 ### Age and Infection Gravity
 %%% this used to work
@@ -165,6 +225,7 @@ rownames(counts) = c("casa","hospital","critical","dead")
 
 dd = df
 dd$age = as.numeric(dd$age)
+
 
 for (i in 1:dim(df)[1]){
   row_i = dd[i,]
@@ -186,9 +247,10 @@ for (i in 1:dim(df)[1]){
 }
 
 ```
-```{r}
-chisq.test(counts)
 
+```{r}
+chisq_age = chisq.test(counts)
+chisq_age
 ```
 
 #Statistical Inference
@@ -236,10 +298,19 @@ df_enrolled = df[rep(row.names(df),df$count),]
 print("sanity check: ")
       dim(df_enrolled)[1] == sum(df$count) # sanity check
 ```
+
 ```{r}
 logReg = glm(severe ~ age + vaccinated + sex, data=df_enrolled, family=binomial(link='logit'))
 
 summary(logReg)
+plot(logReg)
+```
+
+```{r}
+poi_mod <-glm(formula = severe ~ age+vaccinated+sex, data = df_enrolled,
+   family = poisson)
+summary(poi_mod)
+plot(poi_mod)
 ```
 Now this is nice.
 
