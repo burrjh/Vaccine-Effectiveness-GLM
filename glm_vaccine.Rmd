@@ -1,8 +1,9 @@
 ---
-title: "Vaccine Effectiveness in Catalunya"
-author: "Erik and Johannes Markus Burr"
+title: "Vaccine Effectiveness in Catalonia"
+author: "Johannes Markus Burr and Erik Johnsson"
 date: "16 12 2021"
 output:
+  pdf_document: default
   html_document:
     df_print: paged
 ---
@@ -12,13 +13,18 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 # Introduction
-We'll write some introductory words later.
+In this work data from the COVID19 pandemic in Catalonia from 2021 will be analysed. Specifically, the relationship between the disease severity and vaccine status will be investigated.
+Approximately in the summer of 2021 European governements started to vaccinate persons with higher risk of a severe COVID19 infection. 
+Since this data is purely observatory, this constitutes a study of vaccine effectiveness compared to vaccine efficacy, which was done in clearly designed randomized-control studies done for clinical admission.
 
 # Data Preparation
 
-```{r}
+```{r, include=F}
 library("ggplot2")
 library("zoo")
+library("qcc")
+library("car")
+library(RColorBrewer)
 ```
 
 
@@ -46,7 +52,6 @@ The dataset captures these four event types.
 
 ```{r}
 table(df$event) # dependent variable
-2351+1565+5101
 ```
 
 And shows the relationship to vaccine status.
@@ -63,40 +68,37 @@ ggplot( data = df, aes( date, rollmean(count,8,na.pad=TRUE), vaccinated,
 ```
 We have restricted the data to the time between March and December 2021, which includes the end of the Spring's wave but especially the big wave of infections in July as well as the beginning of the winter wave starting in November.
 
-### Plots
-Histograms, Bar charts, Pareto Plots.  %%%todo
 
-
-```{r}
-plot(df$age)
-```
-```{r}
-plot(df$vaccinated,col=1:3)
-```
-```{r}
+### Exploratory Plots
+```{r,fig.show="hold", out.width="50%"}
 plot(df$sex,col=8:9)
+plot(df$age,col=4)
+plot(df$vaccinated,col=3:5)
+plot(df$event,col=2:6)
 ```
-```{r}
-plot(df$vaccinated)
-```
+
+Slightly more male persons were observed than females. Since we restricted the data only to individuals older than 30, the age groups are quite balanced, with older people occurring slightly more often. People with a COVID related event were most of the time not vaccinated at all. The least common case was being partially vaccinated, which makes sense, since this status only held for around two months. Events captured in the dataset occurred by their severity: quarantine, hospitalization, critical (ICU), and death.
+
+
 
 
 ### Critical Patients over time
-divided by gender (and maybe also vaccination status?)
 
-```{r}
-# Shall we consider "critical" as only "critics" or also hospital and deaths?
-# We should do this but monthly instead of daily
+```{r,fig.show="hold", out.width="50%"}
+# males
 df_critial_male = df[df$sex=="Home" & df$event=="Crítics",]
-ggplot( data = df_critial_male, aes( date, rollmean(count,8,na.pad=TRUE), vaccinated )) + geom_line() 
-```
-```{r}
-# Shall we consider "critical" as only "critics" or also hospital and deaths?
-# We should do this but monthly instead of daily
-df_critial_female = df[df$sex=="Dona" & df$event=="Crítics",]
-ggplot( data = df_critial_female, aes( date, rollmean(count,8,na.pad=TRUE), vaccinated )) + geom_line() 
-```
+critical = rollmean(df_critial_male$count,8,na.pad=TRUE)
+ggplot( data = df_critial_male, aes( date, critical, vaccinated )) + geom_line() 
 
+#females
+df_critial_female = df[df$sex=="Dona" & df$event=="Crítics",]
+fem_crit = rollmean(df_critial_female$count,8,na.pad=TRUE)
+ggplot( data = df_critial_female, aes( date, fem_crit, vaccinated )) + geom_line() 
+```
+On the left we see the development over time of male persons with a critical case, and on the right females on the ICU. To make the plot smoother amoving average over 8 days was calculated to tackle day-of-the-week effects. The three waves are clearly visible.
+
+
+In the following plot we can see the development in dependency on the vaccine status.
 
 ```{r}
 df_deaths = df[df$event=="Defunció",]
@@ -104,9 +106,6 @@ ggplot(df_deaths,aes(x=date,y=count, color=vaccinated)) + geom_line()
 ```
 
 
-```{r}
-ggplot(df_deaths,aes(x=date,y=rollmean(count,15,na.pad=TRUE), color=vaccinated)) + geom_line()
-```
 
 # Data Analysis
 
@@ -115,13 +114,13 @@ ggplot(df_deaths,aes(x=date,y=rollmean(count,15,na.pad=TRUE), color=vaccinated))
 A contingency table holds a count variable dependent on two (multilevel) factors. To build it we loop over the dataset, check the variables of interest and sum up the count variable and save it in a new dataframe.
 
 ### Vaccine Status and Infection Gravity
-Firstly, we investige the relationship between vaccine status and the gravitiy of a coronavirus infection.
+Firstly, we investigate the relationship between vaccine status and the gravity of a coronavirus infection.
 
 ```{r}
 # init dataframe for count sums
-count_sums = data.frame(matrix(0,ncol=3,nrow=4))
-colnames(count_sums) = c("none","partial","full")  # vaccine status
-rownames(count_sums) = c("casa","hospital","critical","dead") # event type
+table_vaccine = data.frame(matrix(0,ncol=3,nrow=4))
+colnames(table_vaccine) = c("none","partial","full")  # vaccine status
+rownames(table_vaccine) = c("casa","hospital","critical","dead") # event type
 for (i in 1:dim(df)[1]){
   content_i = df[i,]
   
@@ -140,91 +139,34 @@ for (i in 1:dim(df)[1]){
   if (vacc=="Parcial") col =2
   if (vacc=="Completa") col =3
   
-  count_sums[row,col] = count + count_sums[row,col]
+  table_vaccine[row,col] = count + table_vaccine[row,col]
   
 }
-count_sums
+table_vaccine
 ```
 
 Now that we have the contingency table for event type by vaccine status, we can perform a $\chi^2$ test testing the independence of both factors.
-This is done by calculating the Test statistic ............... %%% put in formula from slides
-```{r}
-chisq_vac = chisq.test(count_sums)
-```
-The nullhypothesis that the type of event and vaccine status are independent can be rejected.
-In order to understand where these difference are present, we calculate the expected values and subtract them from the observed.
 
-A nice little bar plot of different severity for different vaccination status, normalized
 ```{r}
-count_sums_norm=count_sums
-for (i in 1:3){
-  count_sums_norm[,i] = count_sums[,i]/colSums(count_sums[i])
-}
-library(RColorBrewer)
-colors4 <- brewer.pal(4,"Set1")
-bar_plot4 = barplot(data.matrix(count_sums_norm), col = colors4, legend = rownames(count_sums_norm), beside = TRUE)
+(chisq_vac = chisq.test(table_vaccine) )
 ```
+The null hypothesis that the type of event and vaccine status are independent can be rejected.
 
-Same plot as above but binary severity, normalized
-```{r}
-count_sums_binary = data.frame(matrix(0,ncol=3,nrow=2))
-colnames(count_sums_binary) = c("none","partial","full")  # vaccine status
-rownames(count_sums_binary) = c("mild","severe") # event type
-count_sums_binary[1,] = count_sums[1,]
-count_sums_binary[2,] = count_sums[2,]+count_sums[3,]+count_sums[4,]
-count_sums_binary_norm=count_sums_binary
-for (i in 1:3){
-  count_sums_binary_norm[,i] = count_sums_binary[,i]/colSums(count_sums_binary[i])
-}
-bar_plot2 = barplot(data.matrix(count_sums_binary_norm), col=c("red","blue"), legend = rownames(count_sums_binary), beside = TRUE)
-```
+
+
 Pareto charts
-```{r}
-library(qcc)
-#For some reason I can't change "A,B,C,D" to "casa, hospital, .." :(((
-pareto.chart(count_sums[,1], main = "Pareto Chart: No vaccination")
-pareto.chart(count_sums[,2], main = "Pareto Chart: Partial vaccination")
-pareto.chart(count_sums[,3], main = "Pareto Chart: Full vaccination")
+```{r,fig.show="hold", out.width="50%",echo=F, results='hide'}
+
+pareto.chart(table_vaccine[,1], main = "Pareto Chart: No vaccination")
+pareto.chart(table_vaccine[,2], main = "Pareto Chart: Partial vaccination")
+pareto.chart(table_vaccine[,3], main = "Pareto Chart: Full vaccination")
 ```
 
-```{r}
-expected = matrix(data=0, ncol=3, nrow=4)
-total = sum(count_sums)
-for (i in 1:4){
-  for (j in 1:3){
-    expected[i,j] = (rowSums(count_sums)[[i]]*colSums(count_sums)[[j]]) / total
-  }
-}
-count_sums - expected
-```
-Another way of writing. Gives the same answer but might be easier to understand, can skip counting on our own.
-```{r}
-diff_table = count_sums - chisq_vac$expected
-diff_table
-```
 
-%%% This doesn't really make, does it? The first row says that there were more cases in fully vaccinated people than expected? 
-
-%%% It makes sense. Under the null-hyp, more non-vaccinated people should have a mild reaction, and vaccinated are over-represented on mild reactions.
-%%% On the other hand, surprisingly few vaccinated experience "hospital" or "critical", and the opposite for non-vaccinated.
-%%% For the dying people. this is a bit weird though. It seems like vaccinated people are over-represented among the death cases.
-
-
-
-
-%%% My idea was to normalize so we can see what the partial vaccination do. I don't know if it makes sense, but partial seem that partially vaccinated people experience more "casa" cases, less "hospital" and "critical", and also more "dead". Similiar too full vaccination effect but not equally strong.
-
-%%% We should also do a table to answer: "Show the data grouped in a table form as a function of the vaccination status and the age.", for example: 
-          none 30-40, none 40-50, ... , partial 30-40, ...
-casa        x           x                   x
-hospital    x           x                   x
-critical    x           x                   x   
-dead        x           x                   x
 ### Age and Infection Gravity
-%%% this used to work
 ```{r}
-counts = data.frame(matrix(0,ncol=6,nrow=4))
-rownames(counts) = c("casa","hospital","critical","dead")
+table_age = data.frame(matrix(0,ncol=6,nrow=4))
+rownames(table_age) = c("casa","hospital","critical","dead")
 dd = df
 dd$age = as.numeric(dd$age)
 for (i in 1:dim(df)[1]){
@@ -241,128 +183,161 @@ for (i in 1:dim(df)[1]){
   if (event=="Defunció") row = 4
   
   
-  counts[row,age-3] = count + counts[row,age-3]
+  table_age[row,age-3] = count + table_age[row,age-3]
   # the factor starts to count at 4 for some reason
   
 }
-counts
+table_age
 ```
 
 ```{r}
-chisq_age = chisq.test(counts)
-chisq_age
+(chisq_age = chisq.test(table_age) )
 ```
+Again, the null hypothesis that age and severity of COVID19 infection are independent can be rejected.
 
+We can observe the difference between observed Counts and Expected Counts under null hypothesis.
 
 ```{r}
-counts - chisq_age$expected
+table_age - chisq_age$expected
 ```
 
 
 #Statistical Inference
-Poisson Model to fit this count variable
 
+## Parametric Analysis
+
+### Poisson Regression
+To further investigate the relationship between vaccine status and event type, we fit a poisson model on the count variable from the contingency table. The model predicts the count variable through the event type and the vaccine status assuming a poisson distribution. We use poisson's canonical link function.
 ```{r}
-c()
+table_vaccine
 ```
 
+```{r}
+y = unname(unlist(table_vaccine))  
+print(y)            # y is a vector of the count variable
+vaccine_status = as.factor(c(rep(1,4),rep(2,4),rep(3,4)))
+event_type = as.factor(c(rep(c(1,2,3,4),3)))
 
-
-### Multinomial model
+poiss_glm = glm(y~vaccine_status+event_type, family="poisson")
+summary(poiss_glm)
+```
+All parameters are significantly different from zero.
+Here we can better interpret the vaccination effect because it is estimated in dependency on the event type. Generally, being partially vaccinated is linked to fewer events compared to the baseline (not vaccinated), because the parameter vaccine_status2 has a negative sign. The estimated parameter for fully vaccinated people is also negative, but smaller. However, this does not mean that being partially vaccinated is advantageous. Instead, it is probably due to the fact, that people were only partially vaccinated for a very short time, where there was less chance to be infected.
 
 ```{r}
-#install.packages("nnet")
+anova(poiss_glm)
+```
+### Multinomial Model
+Another option for this data with a categorical would be a multinomial model. 
+Because the model interpretation is difficult and it was not covered in class, it is not further discussed.
+
+```{r}
 library(nnet)
 multinom_model  = multinom(event~vaccinated,data=df)
 summary(multinom_model)
 ```
-This is kinda hard to interpret (and we didn't do it in class).
-The model tries to predict the Odds of each outcome vs a baseline (here Cas) and estimates parameters to predict this proportion. 
 
-%%% maybe we delete this and rather do the stuff from class
-
-### Poisson Model
-
-```{r}
-poisson_model = glm(count~sex+age+vaccinated, family="poisson", data=df_deaths)
-summary(poisson_model)
-```
-%%% the vaccine effects are weird
 
 ### Logistic Regression
 
-To fit a simpler model, which is easier to interpret, we create a new binary variable.
-We are interested in explaining which covariates are linked to a mild progression of COVID19 (defined as a 'Cas' event) and a severe sickness (anything of hospitalized, ICU or death). Our argument is, that the main interest for the general population are their chances of experiencing a sickness much worse than the common cold.
+In order to fit a simpler, easier to interpret model, we create a binary variable "having a severe infection".
+Some people might argue, that being infected with the coronavirus is itself not a bad thing. What we are worried about, is having a severe disease, which is consideradly worse than the common flu. Therefore we define a severe case as anything worse than being quarantined at home: Being hospitalized, on the ICU, or dying.
+
 
 ```{r}
 # define critical case as anything worse than being positive and quarantined ("Cas")
 df$severe = as.numeric(! df$event=="Cas")
-# now we would need to multiply the rows by count to fit this in a regular way i think
+# now we would need to multiply the rows by count 
 df_enrolled = df[rep(row.names(df),df$count),]
 ```
-
+In order to for a logistic Regression, we need to expand the dataset, so that each event constitutes its own row. We realize that by copying each row as often as it's count variable indicates via rep. The sanity check confirms that the resulting dataframe has as many rows as the sum of table_age in the old one.
 ```{r}
 print("sanity check: ")
       dim(df_enrolled)[1] == sum(df$count) # sanity check
 ```
 
-We want to model the probability of a person of varying age, vaccination status and sex to have a non-severe or a severe case of covid. This means we have two possible outcomes, and multiple explanatory variables. 
-We are using a logistic model for this problem, because our dependent variable is binary, and we also have multiple explanatory variables which can easily be implemented in the logistic regression.
-We also consider the explanatory variables as independent. For age and sex this is obviously true, but it might not be true for vaccination status and age, as well as vaccination status and sex. It is possible that older, or younger people, are more likely to be vaccinated or not (as well as men or women are more likely to be vaccinated or not).
+We want to model the probability of a person of varying age, vaccination status and sex to have a non-severe or a severe case of Covid19. 
+We are using a logistic model for this problem, because our dependent variable is binary, and we also have multiple explanatory variables.
+We also consider the explanatory variables as independent. For age and sex this is obviously true, but it might not be true for vaccination status and age, since older people have been vaccinated first.
 
 ```{r}
-library(car)
-logReg = glm(severe ~ age + vaccinated + sex, data=df_enrolled, family=binomial(link='logit'))
-anova(logReg)
-summary(logReg)
+logitReg = glm(severe ~ age + vaccinated + sex, data=df_enrolled, family=binomial(link='logit'))
+summary(logitReg)
 ```
-Now this is nice.
+Again, all parameters are statistically significant having a p-value numerically equal to zero.
+We can interpret the parameters more easily when we take their exponent, which constitutes the change in the Odds Ratio:
 
-At a first glance we can see that all the explanatory variables are of (large) statistical significance, so we won't suppress any of them.
 
-Let's have a look at the coefficients
-```{r}
-logReg$coefficients
-```
-We see that with increasing age we have an increasing coefficient. What does this mean?
 
-Our model is: for $Y = 1$, which corresponds to a severe case of covid, we have probability $p = \frac{1}{1+e^{-(\beta_0 + \beta_{1}x_{1,1} + \beta_{2}x_{1,2} + \beta_{3}x_{1,3} + \beta_{4}x_{1,4} + \beta_{5}x_{1,5} + \beta_{6}x_{2,1} + \beta_{7}x_{2,2} + \beta_8x_3) } } $, where $x_{1,i} = 1$ is the categorical variable for the age interval, $x_{2,i}$ is for the vaccination status and $x_3$ is categorical variable if the person is a male. The intercept corresponds to a fully vaccinated female, 30-40 years old.
-
-We see that increasing age leads to a higher coefficient and therefore an increasing risk of a severe covid case, as expected.
-This is also seen in the vaccination status, where the risk is highest with no vaccine at all. Partially vaccination seems to lowering the risk. 
-At last we can also see a positive coefficient if the person is a male, so it seems that men have a higher risk than females for a severe covid case. 
-Another observation is that the coefficient for persons with age $>80$ is (way) larger than the coefficient for unvaccinated persons, which implies that the most dominant explanatory variable is the age rather than vaccination status. 
+Another meaningful link function for the binary regression is the probit link. This assumes a latent normal process.
 
 ```{r}
-poi_mod <-glm(formula = severe ~ age+vaccinated+sex, data = df_enrolled,
-   family = poisson)
-summary(poi_mod)
+probitReg = glm(severe ~ age + vaccinated + sex, data=df_enrolled, family=binomial(link='probit'))
+summary(probitReg)
 ```
+The last link function we try is the complementary log log link.
 
-%%% Dont know wtf this is :/ Took it from Insecticide.pdf
 ```{r}
-library(car)
-library(RcmdrMisc)
-residualPlot(logReg,smooth=F)
-
-plot(df_enrolled$age,df_enrolled$severe)
-
-plot(resid(logReg,type="pearson"),df_enrolled$severe)
-
-lines(df_enrolled$age,predict(logReg,type="response"), smooth=F)
-
+cllReg = glm(severe ~ age + vaccinated + sex, data=df_enrolled, family=binomial(link='cloglog'))
+summary(cllReg)
 ```
 
+```{r}
+# function to calculate fisher statistic
+fisherStat = function(RegM){
+  return(sum(residuals(RegM,type="deviance")^2)/RegM$df.residual)
+}
+
+fisherStat(logitReg)
+fisherStat(probitReg)
+fisherStat(cllReg)
+```
+All three Fisher Statistics are very similar between 0.585-0.586 indicating Underdispersion.
 
 
-%%% TODO
-----------------------------------
-% exploratory plots ->
-% fit a poisson -> ME
-% different links for logistic (compare with AIC) 
-% residual plots       -> ME/erik
-% do model prediction  -> ME
+#### Comparing the Models
+In order to compare the three binary regressions and to check which link function results in the best fit, we compare the log-Likelihood and the Akaike Information Coefficient.
+The Poisson Model cannot be compared with binary regressions because the predicted y is of different nature.
 
+```{r}
+round(c(logitReg$aic,probitReg$aic,cllReg$aic),5)
+```
+With AIC smaller values are considered to show a better model fit.
+
+```{r}
+logLik(logitReg)
+logLik(probitReg)
+logLik(cllReg)
+```
+
+With the log-Likelihood bigger values indicate better model fit.
+So for both metrics the probit-Regression model has the best value.
+
+#### Model Interpretation
+
+However, the values of the logistic Regression are easier to interpret because the estimated parameters can be seen as the log(Odds). Since the models are of similar quality, let's interpret these parameters. Taking the exponential of the parameter, gives the Odds Ratio relative to the baseline group.
+
+```{r}
+round(exp(logitReg$coef),2)
+```
+
+All age categories have a Odds Ratios (OR) bigger than 1. This means people of all ages have a higher risk to get a severe COVID19 infection than the baseline defined to be individuals between 30 and 40. Also the OR increases with age, which means that the Odds increase the older an individual is. The OR for persons being 80 or more is estimated as 23.75, which is the biggest value in this model. This indicates, that age played a bigger role than vaccine status (in 2021 in Catalonia).
+The Odds for male individuals are estimated to be 60% to suffer from a severe COVID19 disease.
+For vaccine status, the fully vaccinated people are taken as baseline group. Non-vaccinated people of the same age group and sex are estimated to have approximately 3 times the Odds of having a severe Coronavirus infection. Also being partially vaccinated increases the odds by around 63% given that other covariates remain the same.
 
 
 ## Conclusion
+
+This work studying vaccine effectiveness shows the issues of non-randomized data. Most of the issues, we had to wrap our heads around would naturally dissolve with a randomized control study, which is why it is the gold standard for pharmaceutical studies. \
+
+One issue present is that older people were vaccinated first, but still were at high risk for severe Covid infections. Therefore the age necessarily has to be included in the models. Another issue is the baseline fallacy, that at some point more people were vaccinated than not, which automatically shifts the number of events towards vaccinated individuals. 
+
+Another observation was that all p-values displayed were strikingly small. This is because both the effect sizes and the sample size of this data set were very large, which naturally influence the statistical inference. 
+
+One conclusion, which we were not aware of before, is that male persons suffered of more severe infections. This might be due to statistical link between males and less healthy lifestyles like smoking resulting in cardiovascular diseases, which are a negative predictor for survival of COVID19. 
+
+Regarding the main analysis, we can confirm what others have found before: 
+\begin{itemize}
+\item Age plays a major role for severe COVID19 diseases. Older people are at much higher risk. In this data the Odds for a severe infection were estimated to be 23 times higher for individuals older than 80 than those between 30 and 40.
+\item Being (fully) vaccinated clearly lowers the risk for a severe Coronavirus infection. Not being vaccinated is estimated to result in a three times increased risk for a severe COVID19 disease progression.
+\end{itemize}
